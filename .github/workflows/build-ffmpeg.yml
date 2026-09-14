@@ -10,10 +10,10 @@ jobs:
       image: archlinux:latest
 
     steps:
-      - name: Checkout repo này (để lấy file nvenc-runtime-api.patch)
+      - name: Checkout repo (lấy file nvenc-runtime-api.patch)
         uses: actions/checkout@v4
 
-      - name: Khởi tạo hệ thống Arch Linux & Cài công cụ cơ bản
+      - name: Cập nhật hệ thống & Cài đặt công cụ nền tảng
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm base-devel git sudo
@@ -25,53 +25,48 @@ jobs:
           cp nvenc-runtime-api.patch /home/builder/
           chown -R builder:builder /home/builder
 
-      - name: Cài đặt nv-codec-headers 13.0 (Bắt buộc cho patch)
+      - name: Cài đặt nv-codec-headers 13.0
         run: |
           su builder -c '
             cd /home/builder
             git clone https://github.com/FFmpeg/nv-codec-headers.git
             cd nv-codec-headers
             # Check out bản phát hành nhánh 13.0
-            git checkout $(git tag -l "n13.0.*" | tail -n 1)
-            make
-            sudo make install
+            git checkout $(git tag -l "n13.0.*" | sort -V | tail -n 1)
+            sudo make PREFIX=/usr install
           '
 
-      - name: Clone ffmpeg-git AUR và chèn patch
+      - name: Khai báo ffnvcodec-headers đã cài đặt vào pacman
+        run: |
+          # Báo cho pacman biết ffnvcodec-headers đã có trên máy
+          # để pacman không kéo bản khác từ repo đè lên bản 13.0
+          echo "AssumeInstalled = ffnvcodec-headers" >> /etc/pacman.conf
+
+      - name: Chuẩn bị mã nguồn và chèn patch
         run: |
           su builder -c '
             cd /home/builder
             git clone https://aur.archlinux.org/ffmpeg-git.git
             cd ffmpeg-git
 
-            # Copy file patch vào thư mục build
+            # Copy file patch vào thư mục PKGBUILD ($startdir)
             cp /home/builder/nvenc-runtime-api.patch .
 
-            # Thêm patch vào hàm prepare() của PKGBUILD
-            sed -i "/prepare() {/a \  patch -Np1 -d ffmpeg -i \"\$srcdir/nvenc-runtime-api.patch\"" PKGBUILD
-
-            # Thêm patch vào mảng source
-            sed -i "/source=(/a \  \"nvenc-runtime-api.patch\"" PKGBUILD
-
-            # Cập nhật tự động lại checksum cho đúng số lượng file trong source
-            updpkgsums
-
-            # Xóa ffnvcodec-headers khỏi makedepends để không bị pacman kéo bản kho chính đè lên
-            sed -i "s/\x27ffnvcodec-headers\x27//g; s/\"ffnvcodec-headers\"//g; s/ffnvcodec-headers//g" PKGBUILD
+            # Chèn lệnh áp patch vào hàm prepare()
+            sed -i "/prepare() {/a \  patch -Np1 -d ffmpeg -i \"\$startdir/nvenc-runtime-api.patch\"" PKGBUILD
           '
 
-      - name: Biên dịch gói ffmpeg-git
+      - name: Cài đặt toàn bộ dependencies và biên dịch ffmpeg-git
         run: |
           su builder -c '
             cd /home/builder/ffmpeg-git
-            # -s: tự cài dependencies chính thức từ pacman
-            # -d: bỏ qua check dependency ffnvcodec-headers (do đã make install ở bước trước)
-            # --skipchecksums: tránh mọi lỗi so khớp mã băm
-            makepkg -sd --skipchecksums --skippgpcheck --noconfirm
+            # -s: Tự động tải nasm và tất cả phụ thuộc còn lại từ kho Arch
+            # Không dùng cờ -d để đảm bảo không bị thiếu nasm
+            makepkg -s --noconfirm
           '
 
-      - name: Đóng gói và Upload Artifacts
+      - name: Upload gói cài đặt (.pkg.tar.zst)
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-git-pascal-patched
+          name: ffmpeg-git-pascal-package
           path: /home/builder/ffmpeg-git/*.pkg.tar.zst
