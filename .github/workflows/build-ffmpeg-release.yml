@@ -1,0 +1,67 @@
+name: Build Patched FFmpeg-Git
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Checkout repo (lấy file nvenc-runtime-api.patch)
+        uses: actions/checkout@v4
+
+      - name: Cập nhật hệ thống, cấu hình build nhanh và tắt Debug
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+
+          # 1. Tận dụng tối đa CPU để build nhanh
+          sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j$(nproc)"/' /etc/makepkg.conf
+
+          # 2. TẮT TẠO GÓI DEBUG: Chuyển 'debug' thành '!debug'
+          sed -i 's/\bdebug\b/!debug/g' /etc/makepkg.conf
+
+      - name: Tạo người dùng builder
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          sed -i 's/\r$//' nvenc-runtime-api.patch
+          cp nvenc-runtime-api.patch /home/builder/
+          chown -R builder:builder /home/builder
+
+      - name: Cài đặt gói ffnvcodec-headers13.0 từ AUR
+        run: |
+          su builder -c '
+            cd /home/builder
+            git clone https://aur.archlinux.org/ffnvcodec-headers13.0.git
+            cd ffnvcodec-headers13.0
+            makepkg -si --noconfirm
+          '
+
+      - name: Chuẩn bị mã nguồn ffmpeg-git và chèn patch
+        run: |
+          su builder -c '
+            cd /home/builder
+            git clone https://aur.archlinux.org/ffmpeg-git.git
+            cd ffmpeg-git
+
+            cp /home/builder/nvenc-runtime-api.patch .
+            sed -i "/prepare() {/a \  patch -Np1 -d ffmpeg -i \"\$startdir/nvenc-runtime-api.patch\"" PKGBUILD
+          '
+
+      - name: Biên dịch ffmpeg-git (chỉ tạo gói chính)
+        run: |
+          su builder -c '
+            cd /home/builder/ffmpeg-git
+            makepkg -s --noconfirm
+          '
+
+      - name: Upload duy nhất gói cài đặt chính (~15MB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-git-pascal-package
+          # Chỉ lấy duy nhất file gói cài đặt chính, bỏ qua mọi file phụ khác
+          path: /home/builder/ffmpeg-git/ffmpeg-git-[0-9]*.pkg.tar.zst
