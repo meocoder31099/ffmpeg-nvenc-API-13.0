@@ -17,30 +17,50 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm base-devel git sudo
+          # Tối ưu tốc độ build FFmpeg bằng toàn bộ số core CPU
+          sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j$(nproc)"/' /etc/makepkg.conf
 
       - name: Tạo người dùng builder
         run: |
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          # Chuyển file patch và đổi sang định dạng ký tự Unix
+          sed -i 's/\r$//' nvenc-runtime-api.patch
           cp nvenc-runtime-api.patch /home/builder/
           chown -R builder:builder /home/builder
 
-      - name: Cài đặt nv-codec-headers 13.0
+      - name: Đóng gói và cài đặt ffnvcodec-headers 13.0 chuẩn Arch
         run: |
           su builder -c '
-            cd /home/builder
+            mkdir -p /home/builder/nv-pkg
+            cd /home/builder/nv-pkg
+
+            # Tải mã nguồn nv-codec-headers 13.0
             git clone https://github.com/FFmpeg/nv-codec-headers.git
             cd nv-codec-headers
-            # Check out bản phát hành nhánh 13.0
-            git checkout $(git tag -l "n13.0.*" | sort -V | tail -n 1)
-            sudo make PREFIX=/usr install
-          '
+            TAG=$(git tag -l "n13.0.*" | sort -V | tail -n 1)
+            git checkout "$TAG"
+            VER="${TAG#n}"
+            cd ..
 
-      - name: Khai báo ffnvcodec-headers đã cài đặt vào pacman
-        run: |
-          # Báo cho pacman biết ffnvcodec-headers đã có trên máy
-          # để pacman không kéo bản khác từ repo đè lên bản 13.0
-          echo "AssumeInstalled = ffnvcodec-headers" >> /etc/pacman.conf
+            # Tạo PKGBUILD đóng gói ffnvcodec-headers
+            cat <<EOF > PKGBUILD
+          pkgname=ffnvcodec-headers
+          pkgver=${VER}
+          pkgrel=1
+          pkgdesc="FFmpeg version of headers required for NVENC (13.0)"
+          arch=("any")
+          license=("MIT")
+          package() {
+            cd nv-codec-headers
+            make PREFIX=/usr DESTDIR="\$pkgdir" install
+          }
+          EOF
+
+            # Build gói và cài vào database pacman
+            makepkg -f --noconfirm
+            sudo pacman -U --noconfirm ffnvcodec-headers-*.pkg.tar.zst
+          '
 
       - name: Chuẩn bị mã nguồn và chèn patch
         run: |
@@ -56,12 +76,11 @@ jobs:
             sed -i "/prepare() {/a \  patch -Np1 -d ffmpeg -i \"\$startdir/nvenc-runtime-api.patch\"" PKGBUILD
           '
 
-      - name: Cài đặt toàn bộ dependencies và biên dịch ffmpeg-git
+      - name: Tự động tải dependencies (nasm, ...) và biên dịch ffmpeg-git
         run: |
           su builder -c '
             cd /home/builder/ffmpeg-git
-            # -s: Tự động tải nasm và tất cả phụ thuộc còn lại từ kho Arch
-            # Không dùng cờ -d để đảm bảo không bị thiếu nasm
+            # makepkg -s sẽ kéo đầy đủ nasm và các phụ thuộc khác mà không đụng tới ffnvcodec-headers
             makepkg -s --noconfirm
           '
 
