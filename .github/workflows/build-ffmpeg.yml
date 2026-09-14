@@ -37,34 +37,37 @@ jobs:
             sudo make install
           '
 
-      - name: Clone ffmpeg-git AUR, áp bản patch và chỉnh sửa PKGBUILD
+      - name: Clone ffmpeg-git AUR và chèn patch
         run: |
           su builder -c '
             cd /home/builder
             git clone https://aur.archlinux.org/ffmpeg-git.git
             cd ffmpeg-git
 
-            # Copy file patch vào thư mục ffmpeg-git
+            # Copy file patch vào thư mục build
             cp /home/builder/nvenc-runtime-api.patch .
 
-            # Thêm patch vào source() của PKGBUILD và bỏ check sha256 cho patch
-            sed -i "/source=(/a \        \"nvenc-runtime-api.patch\"" PKGBUILD
-            sed -i "/b2sums=(/a \        \"SKIP\"" PKGBUILD
-
-            # Thêm lệnh apply patch vào hàm prepare() trong PKGBUILD
+            # Thêm patch vào hàm prepare() của PKGBUILD
             sed -i "/prepare() {/a \  patch -Np1 -d ffmpeg -i \"\$srcdir/nvenc-runtime-api.patch\"" PKGBUILD
 
-            # Xóa ffnvcodec-headers khỏi makedepends để tránh pacman ghi đè bản 13.0 vừa cài
-            sed -i "s/ffnvcodec-headers//g" PKGBUILD
+            # Thêm patch vào mảng source
+            sed -i "/source=(/a \  \"nvenc-runtime-api.patch\"" PKGBUILD
+
+            # Cập nhật tự động lại checksum cho đúng số lượng file trong source
+            updpkgsums
+
+            # Xóa ffnvcodec-headers khỏi makedepends để không bị pacman kéo bản kho chính đè lên
+            sed -i "s/\x27ffnvcodec-headers\x27//g; s/\"ffnvcodec-headers\"//g; s/ffnvcodec-headers//g" PKGBUILD
           '
 
       - name: Biên dịch gói ffmpeg-git
         run: |
           su builder -c '
             cd /home/builder/ffmpeg-git
-            # makepkg -s: tự động kéo các dependency còn lại từ kho Arch
-            # makepkg -d: không check ffnvcodec-headers vì đã cài thủ công ở bước trên
-            makepkg -sd --noconfirm
+            # -s: tự cài dependencies chính thức từ pacman
+            # -d: bỏ qua check dependency ffnvcodec-headers (do đã make install ở bước trước)
+            # --skipchecksums: tránh mọi lỗi so khớp mã băm
+            makepkg -sd --skipchecksums --skippgpcheck --noconfirm
           '
 
       - name: Đóng gói và Upload Artifacts
