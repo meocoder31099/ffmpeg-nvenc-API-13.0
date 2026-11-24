@@ -60,7 +60,7 @@ jobs:
             # sed -i -E "s|(git\+https://[^[:space:]]*ffmpeg\.git)|\1#commit=46f23be8b1|gi" PKGBUILD
 
             # 4. Khóa phiên bản các thư viện .so (để lần sau Arch update như libplacebo thì pacman báo trước, không làm hỏng mpv)
-            sed -i "/^package[a-z0-9_-]*() {/a \  depends+=(libass.so libbluray.so libbs2b.so libdav1d.so libfreetype.so libharfbuzz.so libjxl.so libopenmpt.so libplacebo.so librav1e.so librsvg-2.so librubberband.so libva.so libva-drm.so libva-x11.so libvidstab.so libvorbisenc.so libvorbis.so libvpx.so libx264.so libx265.so libxvidcore.so libzimg.so libzmq.so)" PKGBUILD
+            # sed -i "/^package[a-z0-9_-]*() {/a \  depends+=(libass.so libbluray.so libbs2b.so libdav1d.so libfreetype.so libharfbuzz.so libjxl.so libopenmpt.so libplacebo.so librav1e.so librsvg-2.so librubberband.so libva.so libva-drm.so libva-x11.so libvidstab.so libvorbisenc.so libvorbis.so libvpx.so libx264.so libx265.so libxvidcore.so libzimg.so libzmq.so)" PKGBUILD
           '
 
       - name: Biên dịch ffmpeg-git (chỉ tạo gói chính)
